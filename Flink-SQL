@@ -1,0 +1,770 @@
+package com.guogan.wordCount.chapter06;
+
+import com.guogan.wordCount.Bean.WaterSensor;
+import org.apache.flink.api.common.functions.MapFunction;
+import org.apache.flink.streaming.api.TimeCharacteristic;
+import org.apache.flink.streaming.api.datastream.DataStream;
+import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
+import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.streaming.api.functions.timestamps.AscendingTimestampExtractor;
+import org.apache.flink.table.api.EnvironmentSettings;
+import org.apache.flink.table.api.Table;
+import org.apache.flink.table.api.java.StreamTableEnvironment;
+import org.apache.flink.types.Row;
+
+/**
+ * @author weixu
+ * @create 2020-09-27 18:13
+ */
+public class Flink01_SQL_TableAPI {
+    public static void main(String[] args) throws Exception {
+        // 0 执行环境
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        env.setParallelism(1);
+        env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
+
+        // 1. 读取数据、转换
+        SingleOutputStreamOperator<WaterSensor> sensorDS = env
+                .readTextFile("input/sensor-data.log")
+                .map(new MapFunction<String, WaterSensor>() {
+                    @Override
+                    public WaterSensor map(String value) throws Exception {
+                        String[] datas = value.split(",");
+                        return new WaterSensor(datas[0], Long.valueOf(datas[1]), Integer.valueOf(datas[2]));
+
+                    }
+                })
+                .assignTimestampsAndWatermarks(
+                        new AscendingTimestampExtractor<WaterSensor>() {
+                            @Override
+                            public long extractAscendingTimestamp(WaterSensor element) {
+                                return element.getTs() * 1000L;
+                            }
+                        }
+                );
+        // TODO Table API
+        // 1. 创建 表执行环境
+//        StreamTableEnvironment tableEnv = StreamTableEnvironment.create(env);
+        EnvironmentSettings.Builder settings = EnvironmentSettings.newInstance();
+        EnvironmentSettings environmentSettings = settings.useOldPlanner().inStreamingMode().build();
+        StreamTableEnvironment tableEnv = StreamTableEnvironment.create(env, environmentSettings);
+        // 2. 把 DataStream 转换成 Table
+        Table table = tableEnv.fromDataStream(sensorDS, "id,ts as timestamp,vc");
+        // 3. 使用 Table API进行处理
+        Table resulttable = table.filter("id=='sensor_1'")
+                .select("id,timestamp");
+        // 4. 把 Table转换成 DataStream
+        DataStream<Row> rowDataStream = tableEnv.toAppendStream(resulttable, Row.class);
+        rowDataStream.print();
+        env.execute();
+
+
+    }
+}
+
+
+package com.guogan.wordCount.chapter06;
+
+import com.guogan.wordCount.Bean.WaterSensor;
+import org.apache.flink.api.common.functions.MapFunction;
+import org.apache.flink.api.java.tuple.Tuple2;
+import org.apache.flink.streaming.api.TimeCharacteristic;
+import org.apache.flink.streaming.api.datastream.DataStream;
+import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
+import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.streaming.api.functions.timestamps.AscendingTimestampExtractor;
+import org.apache.flink.table.api.EnvironmentSettings;
+import org.apache.flink.table.api.Table;
+import org.apache.flink.table.api.java.StreamTableEnvironment;
+import org.apache.flink.types.Row;
+
+/**
+ * @author weixu
+ * @create 2020-09-27 18:36
+ */
+public class Flink02_SQL_TableAPI {
+    public static void main(String[] args) throws Exception {
+        // 0 执行环境
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        env.setParallelism(1);
+        env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
+
+        // 1. 读取数据、转换
+        SingleOutputStreamOperator<WaterSensor> sensorDS = env
+                .readTextFile("input/sensor-data.log")
+                .map(new MapFunction<String, WaterSensor>() {
+                    @Override
+                    public WaterSensor map(String value) throws Exception {
+                        String[] datas = value.split(",");
+                        return new WaterSensor(datas[0], Long.valueOf(datas[1]), Integer.valueOf(datas[2]));
+
+                    }
+                })
+                .assignTimestampsAndWatermarks(
+                        new AscendingTimestampExtractor<WaterSensor>() {
+                            @Override
+                            public long extractAscendingTimestamp(WaterSensor element) {
+                                return element.getTs() * 1000L;
+                            }
+                        }
+                );
+
+        // TODO Table API
+        // 1. 创建 表执行环境
+//        StreamTableEnvironment tableEnv = StreamTableEnvironment.create(env);
+        EnvironmentSettings settings = EnvironmentSettings.newInstance().useOldPlanner().inStreamingMode().build();
+        StreamTableEnvironment tableEnv = StreamTableEnvironment.create(env, settings);
+        // 2. 把 DataStream 转换成 Table
+        Table table = tableEnv.fromDataStream(sensorDS, "id,ts as timestamp,vc");
+
+        // 3. 使用 Table API进行处理
+        Table id = table.groupBy("id").select("id,count(id)");
+
+        // 4. 把 Table转换成 DataStream
+        DataStream<Tuple2<Boolean, Row>> resultDS = tableEnv.toRetractStream(id, Row.class);
+        resultDS.print();
+        env.execute();
+    }
+}
+
+
+/**
+ * @author weixu
+ * @create 2020-09-27 19:05
+ */
+public class Flink03_SQL_TableAPI {
+    public static void main(String[] args) throws Exception {
+        // 0 执行环境
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        env.setParallelism(1);
+        env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
+
+        // 1. 读取数据、转换
+        SingleOutputStreamOperator<WaterSensor> sensorDS = env
+                .readTextFile("input/sensor-data.log")
+                .map(new MapFunction<String, WaterSensor>() {
+                    @Override
+                    public WaterSensor map(String value) throws Exception {
+                        String[] datas = value.split(",");
+                        return new WaterSensor(datas[0], Long.valueOf(datas[1]), Integer.valueOf(datas[2]));
+
+                    }
+                })
+                .assignTimestampsAndWatermarks(
+                        new AscendingTimestampExtractor<WaterSensor>() {
+                            @Override
+                            public long extractAscendingTimestamp(WaterSensor element) {
+                                return element.getTs() * 1000L;
+                            }
+                        }
+
+                );
+        //1.创建环境
+        EnvironmentSettings settings = EnvironmentSettings.newInstance().useOldPlanner().inStreamingMode().build();
+        StreamTableEnvironment tableEnv = StreamTableEnvironment.create(env, settings);
+        //2、将stream转换为table
+        Table table = tableEnv.fromDataStream(sensorDS, "id,ts,vc");
+        //3. 使用 Table API进行处理
+        Table select = table.select("id,vc");
+
+        // 4. 保存到 本地文件系统
+        // 连接外部系统，将外部系统抽象成 一个 Table对象，需要指定存储格式、表的结构信息（字段名、类型）、表名
+        // 第一步 connect() 外部系统的连接描述器，官方有 FS、Kafka、ES
+        // 第二步 withFormat  指定 外部系统 数据的存储格式
+        // 第三步 withSchema 要抽象成的 Table 的 Schema信息，有 字段名、字段类型
+        // 第四步 createTemporaryTable 给抽象成的 Table 一个 表名
+        tableEnv.connect(new FileSystem().path("out/flink.txt"))
+                .withFormat(new OldCsv().fieldDelimiter("|"))
+                .withSchema(
+                        new Schema().field("id",DataTypes.STRING())
+                                .field("hehe",DataTypes.INT())
+                ).createTemporaryTable("tables");
+        //使用 TableAPI里的 insertInto, 把一张表的数据 插入到 另一张表(外部系统抽象成的 Table)
+        select.insertInto("tables");
+        env.execute();
+    }
+}
+
+
+/**
+ * @author weixu
+ * @create 2020-09-27 19:28
+ */
+public class Flink04_SQL_SQLAPI {
+    public static void main(String[] args) throws Exception {
+        // 0 执行环境
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        env.setParallelism(1);
+        env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
+
+        // 1. 读取数据、转换
+        SingleOutputStreamOperator<WaterSensor> sensorDS = env
+                .readTextFile("input/sensor-data.log")
+                .map(new MapFunction<String, WaterSensor>() {
+                    @Override
+                    public WaterSensor map(String value) throws Exception {
+                        String[] datas = value.split(",");
+                        return new WaterSensor(datas[0], Long.valueOf(datas[1]), Integer.valueOf(datas[2]));
+
+                    }
+                })
+                .assignTimestampsAndWatermarks(
+                        new AscendingTimestampExtractor<WaterSensor>() {
+                            @Override
+                            public long extractAscendingTimestamp(WaterSensor element) {
+                                return element.getTs() * 1000L;
+                            }
+                        }
+                );
+        // TODO SQL操作 Table
+        // 1. 创建 表执行环境
+        EnvironmentSettings settings = EnvironmentSettings.newInstance()
+                .useOldPlanner() // 使用官方的 planner
+//                .useBlinkPlanner()
+                .inStreamingMode()
+                .build();
+        StreamTableEnvironment tableEnv = StreamTableEnvironment.create(env, settings);
+        //2.将stream转为table
+        Table table = tableEnv.fromDataStream(sensorDS, "id,ts,vc");
+        // 3. 给 Table 命名
+        // 通过 createTemporaryView
+        // => 可以将 DataStream 转成 Table对象，并且给一个 表名,可以指定 字段名
+        // => 也可以将 Table对象，给一个 表名，不能再指定 字段名
+//        tableEnv.createTemporaryView("sensorTable", sensorTable);
+        tableEnv.createTemporaryView("tables",table);
+
+        Table table1 = tableEnv.sqlQuery("select * from tables");
+        DataStream<Row> rowDataStream = tableEnv.toAppendStream(table1, Row.class);
+        rowDataStream.print();
+        env.execute();
+
+
+    }
+}
+
+
+/**
+ * @author weixu
+ * @create 2020-09-27 19:50
+ */
+public class Flink05_SQL_Connect {
+    public static void main(String[] args) throws Exception {
+        // 0 执行环境
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        env.setParallelism(1);
+        env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
+
+        // 1. 读取数据、转换
+        SingleOutputStreamOperator<WaterSensor> sensorDS = env
+                .readTextFile("input/sensor-data.log")
+                .map(new MapFunction<String, WaterSensor>() {
+                    @Override
+                    public WaterSensor map(String value) throws Exception {
+                        String[] datas = value.split(",");
+                        return new WaterSensor(datas[0], Long.valueOf(datas[1]), Integer.valueOf(datas[2]));
+
+                    }
+                })
+                .assignTimestampsAndWatermarks(
+                        new AscendingTimestampExtractor<WaterSensor>() {
+                            @Override
+                            public long extractAscendingTimestamp(WaterSensor element) {
+                                return element.getTs() * 1000L;
+                            }
+                        }
+                );
+
+        // TODO Table API
+        // 1. 创建 表执行环境
+//        StreamTableEnvironment tableEnv = StreamTableEnvironment.create(env);
+        EnvironmentSettings settings = EnvironmentSettings.newInstance()
+                .useOldPlanner() // 使用官方的 planner
+//                .useBlinkPlanner()
+                .inStreamingMode()
+                .build();
+        StreamTableEnvironment tableEnv = StreamTableEnvironment.create(env, settings);
+        tableEnv.createTemporaryView("tables",sensorDS,"id,ts,vc");
+       tableEnv.connect(
+                new FileSystem().path("out/f1.txt")
+        ).withFormat(new OldCsv().fieldDelimiter(".")).withSchema(
+                new Schema().field("id", DataTypes.STRING())
+                        .field("ts", DataTypes.BIGINT())
+               .field("vc",DataTypes.INT())
+        ).createTemporaryTable("fstables");
+       tableEnv.sqlUpdate("INSERT INTO fstables SELECT * FROM tables");
+       env.execute();
+    }
+}
+
+
+/**
+ * @author weixu
+ * @create 2020-09-27 20:03
+ */
+public class Flink06_SQL_Create {
+    public static void main(String[] args) throws Exception {
+        // 0 执行环境
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        env.setParallelism(1);
+        env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
+
+        // 1. 读取数据、转换
+        SingleOutputStreamOperator<WaterSensor> sensorDS = env
+                .readTextFile("input/sensor-data.log")
+                .map(new MapFunction<String, WaterSensor>() {
+                    @Override
+                    public WaterSensor map(String value) throws Exception {
+                        String[] datas = value.split(",");
+                        return new WaterSensor(datas[0], Long.valueOf(datas[1]), Integer.valueOf(datas[2]));
+
+                    }
+                })
+                .assignTimestampsAndWatermarks(
+                        new AscendingTimestampExtractor<WaterSensor>() {
+                            @Override
+                            public long extractAscendingTimestamp(WaterSensor element) {
+                                return element.getTs() * 1000L;
+                            }
+                        }
+                );
+
+        // TODO Table API
+        // 1. 创建 表执行环境
+//        StreamTableEnvironment tableEnv = StreamTableEnvironment.create(env);
+        EnvironmentSettings settings = EnvironmentSettings.newInstance()
+                .useOldPlanner() // 使用官方的 planner
+//                .useBlinkPlanner()
+                .inStreamingMode()
+                .build();
+        StreamTableEnvironment tableEnv = StreamTableEnvironment.create(env, settings);
+
+        // TODO 获取 Table对象
+        // TODO 方式1. 将 DataStream 转换成 Table对象
+        Table table = tableEnv.fromDataStream(sensorDS, "id,ts,vc");
+        // TODO 方式2  从表名获取 Table对象
+        tableEnv.createTemporaryView("sensorTable", sensorDS, "id,ts,vc");
+
+
+        // 3. 保存到 本地文件系统
+        tableEnv
+                .connect(new FileSystem().path("out/flink.txt"))
+                .withFormat(new OldCsv().fieldDelimiter("、"))
+                .withSchema(
+                        new Schema()
+                                .field("id", DataTypes.STRING())
+                                .field("timestamp", DataTypes.BIGINT())
+                                .field("hahaha", DataTypes.INT())
+                )
+                .createTemporaryTable("fsTable");
+
+        //TODO 方式2 从表名获取 Table对象
+
+
+        // 使用 SQL保存数据到 文件（外部系统）
+        tableEnv.sqlUpdate("INSERT INTO fsTable SELECT * FROM sensorTable" );
+
+        env.execute();
+    }
+}
+
+/**
+ * @author weixu
+ * @create 2020-09-27 20:07
+ */
+public class Flink07_SQL_Explain {
+    public static void main(String[] args) throws Exception {
+        // 0 执行环境
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        env.setParallelism(1);
+        env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
+
+        // 1. 读取数据、转换
+        SingleOutputStreamOperator<WaterSensor> sensorDS = env
+                .readTextFile("input/sensor-data.log")
+                .map(new MapFunction<String, WaterSensor>() {
+                    @Override
+                    public WaterSensor map(String value) throws Exception {
+                        String[] datas = value.split(",");
+                        return new WaterSensor(datas[0], Long.valueOf(datas[1]), Integer.valueOf(datas[2]));
+
+                    }
+                })
+                .assignTimestampsAndWatermarks(
+                        new AscendingTimestampExtractor<WaterSensor>() {
+                            @Override
+                            public long extractAscendingTimestamp(WaterSensor element) {
+                                return element.getTs() * 1000L;
+                            }
+                        }
+                );
+
+
+        // 1. 创建 表执行环境
+        EnvironmentSettings settings = EnvironmentSettings.newInstance()
+                .useOldPlanner() // 使用官方的 planner
+//                .useBlinkPlanner()
+                .inStreamingMode()
+                .build();
+        StreamTableEnvironment tableEnv = StreamTableEnvironment.create(env, settings);
+        Table table = tableEnv.fromDataStream(sensorDS, "id,ts,vc");
+        Table result = table.groupBy("id").select("id,count(id)");
+        String explain = tableEnv.explain(result);
+        System.out.println(explain);
+        env.execute();
+
+
+    }
+}
+
+
+/**
+ * @author weixu
+ * @create 2020-09-27 20:15
+ */
+public class Flink08_SQL_Operator {
+    public static void main(String[] args) throws Exception {
+        // 0 执行环境
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        env.setParallelism(1);
+        env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
+
+        // 1. 读取数据、转换
+        SingleOutputStreamOperator<WaterSensor> sensorDS = env
+                .readTextFile("input/sensor-data.log")
+                .map(new MapFunction<String, WaterSensor>() {
+                    @Override
+                    public WaterSensor map(String value) throws Exception {
+                        String[] datas = value.split(",");
+                        return new WaterSensor(datas[0], Long.valueOf(datas[1]), Integer.valueOf(datas[2]));
+
+                    }
+                })
+                .assignTimestampsAndWatermarks(
+                        new AscendingTimestampExtractor<WaterSensor>() {
+                            @Override
+                            public long extractAscendingTimestamp(WaterSensor element) {
+                                return element.getTs() * 1000L;
+                            }
+                        }
+                );
+        SingleOutputStreamOperator<WaterSensor> sensorDS1 = env
+                .readTextFile("input/sensor-data-cep.log")
+                .map(new MapFunction<String, WaterSensor>() {
+                    @Override
+                    public WaterSensor map(String value) throws Exception {
+                        String[] datas = value.split(",");
+                        return new WaterSensor(datas[0], Long.valueOf(datas[1]), Integer.valueOf(datas[2]));
+
+                    }
+                })
+                .assignTimestampsAndWatermarks(
+                        new AscendingTimestampExtractor<WaterSensor>() {
+                            @Override
+                            public long extractAscendingTimestamp(WaterSensor element) {
+                                return element.getTs() * 1000L;
+                            }
+                        }
+                );
+
+        // TODO SQL操作 Table
+        // 1. 创建 表执行环境
+        EnvironmentSettings settings = EnvironmentSettings.newInstance()
+                .useOldPlanner() // 使用官方的 planner
+//                .useBlinkPlanner()
+                .inStreamingMode()
+                .build();
+        StreamTableEnvironment tableEnv = StreamTableEnvironment.create(env, settings);
+        // 2. 把 DataStream 转换成 Table,命名
+        tableEnv.createTemporaryView("sensorTable", sensorDS, "id,ts,vc");
+        tableEnv.createTemporaryView("sensorTable1", sensorDS1, "id,ts,vc");
+
+        //TODO 3. 使用 SQL进行处理
+        Table resultTable = tableEnv
+//                .sqlQuery("select * from sensorTable"); // 查询
+//                .sqlQuery("select * from sensorTable where id='sensor_1'"); // 条件
+//                .sqlQuery("select id,count(id) from sensorTable group by id"); // 分组
+//                .sqlQuery("select " +
+//                        "* " +
+//                        "from sensorTable s1 " +
+//                        "left join sensorTable1 s2 " +
+//                        "on s1.id=s2.id"); //连接
+                .sqlQuery("select " +
+                        "* " +
+                        "from " +
+                        "(select * from sensorTable)" +
+                        "union " +
+                        "(select * from sensorTable1)");
+        DataStream<Tuple2<Boolean, Row>> tuple2DataStream = tableEnv.toRetractStream(resultTable, Row.class);
+        tuple2DataStream.print();
+        env.execute();
+    }
+
+}
+
+
+/**
+ * @author weixu
+ * @create 2020-09-27 20:20
+ */
+public class Flink08_SQL_Window {
+    public static void main(String[] args) throws Exception {
+        // 0 执行环境
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        env.setParallelism(1);
+        env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
+
+        // 1. 读取数据、转换
+        SingleOutputStreamOperator<WaterSensor> sensorDS = env
+                .readTextFile("input/sensor-data.log")
+                .map(new MapFunction<String, WaterSensor>() {
+                    @Override
+                    public WaterSensor map(String value) throws Exception {
+                        String[] datas = value.split(",");
+                        return new WaterSensor(datas[0], Long.valueOf(datas[1]), Integer.valueOf(datas[2]));
+
+                    }
+                })
+                .assignTimestampsAndWatermarks(
+                        new AscendingTimestampExtractor<WaterSensor>() {
+                            @Override
+                            public long extractAscendingTimestamp(WaterSensor element) {
+                                return element.getTs() * 1000L;
+                            }
+                        }
+                );
+
+
+        // TODO SQL操作 Table
+        // 1. 创建 表执行环境
+        EnvironmentSettings settings = EnvironmentSettings.newInstance()
+                .useOldPlanner() // 使用官方的 planner
+//                .useBlinkPlanner()
+                .inStreamingMode()
+                .build();
+        StreamTableEnvironment tableEnv = StreamTableEnvironment.create(env, settings);
+
+        // 2. 把 DataStream 转换成 Table,命名
+        tableEnv.createTemporaryView("sensorTable", sensorDS, "id,ts.rowtime as rt,vc");
+//        tableEnv.createTemporaryView("sensorTable", sensorDS, "id,ts.proctime,vc");
+        Table sensorTable = tableEnv.from("sensorTable");
+
+        //TODO 3. 使用 TableAPI 开窗（Group Window）
+        // 1.要在字段里 指定 用来分组（按时间间隔）或者排序（按行数）的时间字段 => 字段名.rowtime 或 字段名.proctime,还可以起个别名
+        // 2.table调用window方法
+//                => 首先，指定窗口类型：Tumble、Slide、Session
+//                => 然后，指定窗口的参数：over("xxx.minutes")窗口长度、every("xxx.minutes")滑动步长
+//                => 接着，指定 用来分组（按时间间隔）或者排序（按行数）的时间字段 => 指定为 rowtime或 proctime的字段
+//                => 最后，给窗口起一个别名
+        // 3.必须把 窗口 放在 分组字段里
+        // 4.可以用 窗口.start 窗口.end 获取窗口的开始和结束时间
+//        Table resultTable = sensorTable
+////                .window(Tumble.over("5.seconds").on("rt").as("w"))
+//                .window(Slide.over("5.seconds").every("2.seconds").on("rt").as("w"))
+//                .groupBy("id,w")
+//                .select("id,count(id),w.start,w.end");
+
+//        Table resultTable = tableEnv
+//                .sqlQuery("select " +
+//                        "id," +
+//                        "HOP_END(atime,INTERVAL '1' HOUR,INTERVAL '5' MINUTE) " +
+//                        "from sensorTable " +
+//                        "group by HOP(atime,INTERVAL '1' HOUR,INTERVAL '5' MINUTE),id");
+
+        // TODO OverWindow
+        // TableAPI
+//        Table resultTable = sensorTable
+//                .window(
+//                        Over
+//                                .partitionBy("id")
+//                                .orderBy("rt")
+//                                .preceding("UNBOUNDED_RANGE")
+//                                .following("CURRENT_RANGE")
+//                                .as("ow"))
+//                .select("id,count(id) over ow");
+
+        // SQL
+        Table resultTable = tableEnv.sqlQuery("select id," +
+                "count(id) over(partition by id order by rt ROWS BETWEEN 2 PRECEDING AND CURRENT ROW ) " +
+                "from sensorTable");
+
+        tableEnv.toRetractStream(resultTable, Row.class).print();
+
+        env.execute();
+    }
+
+}
+
+
+/**
+ * @author weixu
+ * @create 2020-09-27 20:22
+ */
+public class Flink09_SQL_HotItemsAnalysis {
+    public static void main(String[] args) throws Exception {
+            // 0.创建执行环境
+            StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+            env.setParallelism(1);
+            env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
+
+            // 1.读取数据
+            SingleOutputStreamOperator<UserBehavior> userBehaviorDS = env.readTextFile("input/UserBehavior.csv")
+                    .map(new MapFunction<String, UserBehavior>() {
+                        @Override
+                        public UserBehavior map(String value) throws Exception {
+                            String[] datas = value.split(",");
+                            return new UserBehavior(
+                                    Long.valueOf(datas[0]),
+                                    Long.valueOf(datas[1]),
+                                    Integer.valueOf(datas[2]),
+                                    datas[3],
+                                    Long.valueOf(datas[4]));
+                        }
+                    })
+                    .assignTimestampsAndWatermarks(
+                            new AscendingTimestampExtractor<UserBehavior>() {
+                                @Override
+                                public long extractAscendingTimestamp(UserBehavior element) {
+                                    return element.getTimestamp() * 1000L;
+                                }
+                            }
+                    );
+
+            // TODO 使用 TableAPI和SQL实现TopN =》 TopN只能用 Blink
+            // 1.创建表的执行环境
+            EnvironmentSettings settings = EnvironmentSettings.newInstance()
+                    .useBlinkPlanner()
+                    .inStreamingMode()
+                    .build();
+            StreamTableEnvironment tableEnv = StreamTableEnvironment.create(env, settings);
+
+            // 2.从流中获取 Table对象
+            Table table = tableEnv.fromDataStream(userBehaviorDS, "itemId,behavior,timestamp.rowtime");
+
+            // 3.使用 TableAPI准备数据:过滤、开窗、分组、聚合、打windowEnd标签
+            Table result = table.window(Slide.over("1.hours").every("5.minutes").on("timestamp").as("w"))
+                    .groupBy("itemId,w")
+                    .select("itemId,count(itemId) as cnt,w.end as windowEnd");
+            // 先转成流 =》防止自动转换类型，出现匹配不上的情况，先转成流，指定了Row类型，后面类型就能统一
+            DataStream<Row> dataStream = tableEnv.toAppendStream(result, Row.class);
+        tableEnv.createTemporaryView("aggTable", dataStream, "itemId,cnt,windowEnd");
+            // 4.使用 SQL实现 TopN的排序
+            Table table1 = tableEnv.sqlQuery("select " +
+                    "* " +
+                    "from (" +
+                    "    select " +
+                    "    *," +
+                    "    row_number() over(partition by windowEnd order by cnt desc) as ranknum " +
+                    "    from aggTable" +
+                    ") " +
+                    "where ranknum <= 3");
+            DataStream<Tuple2<Boolean, Row>> tuple2DataStream = tableEnv.toRetractStream(table1, Row.class);
+
+            tuple2DataStream.print();
+            env.execute();
+
+    }
+}
+
+
+/**
+ * @author weixu
+ * @create 2020-09-27 20:57
+ */
+public class Flink10_Case_UVByBloomFilter {
+    public static void main(String[] args) throws Exception {
+
+        // 0.创建执行环境
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        env.setParallelism(1);
+        env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
+
+        // 1.从文件读取数据、转换成 bean对象
+        SingleOutputStreamOperator<UserBehavior> userBehaviorDS = env
+                .readTextFile("input/UserBehavior.csv")
+                .map(new MapFunction<String, UserBehavior>() {
+
+                    @Override
+                    public UserBehavior map(String value) throws Exception {
+                        String[] datas = value.split(",");
+                        return new UserBehavior(
+                                Long.valueOf(datas[0]),
+                                Long.valueOf(datas[1]),
+                                Integer.valueOf(datas[2]),
+                                datas[3],
+                                Long.valueOf(datas[4])
+                        );
+                    }
+                })
+                .assignTimestampsAndWatermarks(
+                        new AscendingTimestampExtractor<UserBehavior>() {
+                            @Override
+                            public long extractAscendingTimestamp(UserBehavior element) {
+                                return element.getTimestamp() * 1000L;
+                            }
+                        }
+                );
+        // TODO 实现 UV的统计 ：对 userId进行去重，统计
+        // 2.处理数据
+        SingleOutputStreamOperator<UserBehavior> filter = userBehaviorDS.filter(data -> "pv".equals(data.getBehavior()));
+        SingleOutputStreamOperator<Tuple2<String, Long>> uvTuple2 = filter.map(new MapFunction<UserBehavior, Tuple2<String, Long>>() {
+
+            @Override
+            public Tuple2<String, Long> map(UserBehavior userBehavior) throws Exception {
+                return Tuple2.of("uv", userBehavior.getUserId());
+            }
+        });
+        KeyedStream<Tuple2<String, Long>, String> ks = uvTuple2.keyBy(d -> d.f0);
+        WindowedStream<Tuple2<String, Long>, String, TimeWindow> uvWS = ks.timeWindow(Time.hours(1));
+        SingleOutputStreamOperator<String> ucDS = uvWS.aggregate(new AggWithBloomFilter(), new MyProcessWindowFunction());
+        ucDS.print();
+        env.execute();
+
+    }
+    public static class MyProcessWindowFunction extends ProcessWindowFunction<Long,String,String,TimeWindow>{
+        @Override
+        public void open(Configuration parameters) throws Exception {
+            super.open(parameters);
+        }
+
+        @Override
+        public void process(String s, Context context, Iterable<Long> iterable, Collector<String> collector) throws Exception {
+            long start = context.window().getStart();
+            long end = context.window().getEnd();
+            collector.collect("窗口[" + start + "," + end + ")的uv值为:" + iterable.iterator().next());
+        }
+    }
+    public static class AggWithBloomFilter implements AggregateFunction<Tuple2<String, Long>, Tuple2<Long, BloomFilter<Long>>, Long>{
+        @Override
+        public Tuple2<Long, BloomFilter<Long>> createAccumulator() {
+            //   funnel：数据类型(一般是调用Funnels工具类中的)
+            //   expectedInsertions：期望插入的值的个数
+            //   fpp 错误率(默认值为0.03)
+            //   错误率越大，所需空间和时间越小，错误率越小，所需空间和时间约大
+//            return Tuple2.of(0L, BloomFilter.create(Funnels.longFunnel(), 1000000000, 0.01));
+            return Tuple2.of(0L,BloomFilter.create(Funnels.longFunnel(),1000000,0.01));
+        }
+
+        @Override
+        public Tuple2<Long, BloomFilter<Long>> add(Tuple2<String, Long> value, Tuple2<Long, BloomFilter<Long>> value2) {
+            Long userId=value.f1;
+            Long uvCount = value2.f0;
+            BloomFilter<Long> bloomFilter = value2.f1;
+            if (!bloomFilter.mightContain(userId)){
+                uvCount++;
+                bloomFilter.put(userId);
+            }
+            return Tuple2.of(uvCount,bloomFilter);
+        }
+
+        @Override
+        public Long getResult(Tuple2<Long, BloomFilter<Long>> longBloomFilterTuple2) {
+            return longBloomFilterTuple2.f0;
+        }
+
+        @Override
+        public Tuple2<Long, BloomFilter<Long>> merge(Tuple2<Long, BloomFilter<Long>> value, Tuple2<Long, BloomFilter<Long>> acc1) {
+
+            return null;
+        }
+    }
+}
