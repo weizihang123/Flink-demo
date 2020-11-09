@@ -1,0 +1,742 @@
+package com.guogan.wordCount.chapter03;
+
+import com.guogan.wordCount.Bean.WaterSensor;
+import org.apache.flink.api.common.functions.MapFunction;
+import org.apache.flink.streaming.api.collector.selector.OutputSelector;
+import org.apache.flink.streaming.api.datastream.DataStreamSource;
+import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
+import org.apache.flink.streaming.api.datastream.SplitStream;
+import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+
+import java.util.Arrays;
+
+/**
+ * @author weixu
+ * @create 2020-09-18 19:03
+ */
+public class Flink12_Transform_Split {
+    public static void main(String[] args) throws Exception {
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        env.setParallelism(1);
+        DataStreamSource<String> inDS = env.readTextFile("input/sensor-data.log");
+        SingleOutputStreamOperator<WaterSensor> mapDS = inDS.map(new MapFunction<String, WaterSensor>() {
+            @Override
+            public WaterSensor map(String s) throws Exception {
+                String[] datas = s.split(",");
+                return new WaterSensor(
+                        datas[0],
+                        Long.valueOf(datas[1]),
+                        Integer.valueOf(datas[2])
+
+                );
+            }
+        });
+        SplitStream<WaterSensor> split = mapDS.split(new OutputSelector<WaterSensor>() {
+            @Override
+            public Iterable<String> select(WaterSensor waterSensor) {
+
+                if (waterSensor.getVc() < 10) {
+                    return Arrays.asList("normal");
+                } else if (waterSensor.getVc() < 60) {
+                    return Arrays.asList("happy");
+                } else {
+                    return Arrays.asList("else");
+                }
+            }
+        });
+        split.select("normal").print("normal");
+        split.select("else").print("else");
+        split.select("happy").print("happy");
+
+        env.execute();
+    }
+}
+
+package com.guogan.wordCount.chapter03;
+
+import com.guogan.wordCount.Bean.WaterSensor;
+import org.apache.flink.api.common.functions.MapFunction;
+import org.apache.flink.streaming.api.datastream.ConnectedStreams;
+import org.apache.flink.streaming.api.datastream.DataStreamSource;
+import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
+import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.streaming.api.functions.co.CoMapFunction;
+
+import java.util.Arrays;
+
+/**
+ * @author weixu
+ * @create 2020-09-18 19:25
+ */
+public class Flink14_Transform_Connect {
+    public static void main(String[] args) throws Exception {
+        // 0.创建执行环境
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        env.setParallelism(1);
+
+        // 1.从文件读取数据
+        SingleOutputStreamOperator<WaterSensor> sensorDS = env
+                .readTextFile("input/sensor-data.log")
+                .map(new MapFunction<String, WaterSensor>() {
+                    @Override
+                    public WaterSensor map(String value) throws Exception {
+                        String[] datas = value.split(",");
+                        return new WaterSensor(datas[0], Long.valueOf(datas[1]), Integer.valueOf(datas[2]));
+                    }
+                });
+
+        // 再获取一条流
+        DataStreamSource<Integer> numDS = env.fromCollection(Arrays.asList(1, 2, 3, 4));
+        ConnectedStreams<WaterSensor, Integer> connectDS = sensorDS.connect(numDS);
+        connectDS.map(new CoMapFunction<WaterSensor, Integer, Object>() {
+            @Override
+            public Object map1(WaterSensor waterSensor) throws Exception {
+
+                return waterSensor.toString();
+            }
+
+            @Override
+            public Object map2(Integer integer) throws Exception {
+                return integer+10;
+            }
+        }).print();
+        env.execute();
+    }
+}
+
+package com.guogan.wordCount.chapter03;
+
+import com.guogan.wordCount.Bean.WaterSensor;
+import org.apache.flink.api.common.functions.MapFunction;
+import org.apache.flink.streaming.api.datastream.DataStream;
+import org.apache.flink.streaming.api.datastream.DataStreamSource;
+import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
+import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+
+import java.util.Arrays;
+
+/**
+ * @author weixu
+ * @create 2020-09-18 19:32
+ */
+public class Flink15_Transform_Union {
+    public static void main(String[] args) throws Exception {
+        // 0.创建执行环境
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        env.setParallelism(1);
+
+        // 1.从文件读取数据
+        SingleOutputStreamOperator<WaterSensor> sensorDS = env
+                .readTextFile("input/sensor-data.log")
+                .map(new MapFunction<String, WaterSensor>() {
+                    @Override
+                    public WaterSensor map(String value) throws Exception {
+                        String[] datas = value.split(",");
+                        return new WaterSensor(datas[0], Long.valueOf(datas[1]), Integer.valueOf(datas[2]));
+                    }
+                });
+
+        // 再获取一条流
+        DataStreamSource<Integer> numDS = env.fromCollection(Arrays.asList(1, 2, 67, 4));
+        DataStreamSource<Integer> aumDS = env.fromCollection(Arrays.asList(1, 7, 3, 6));
+        DataStreamSource<Integer> bumDS = env.fromCollection(Arrays.asList(1,9, 5, 4));
+        DataStream<Integer> union = numDS.union(aumDS).union(bumDS);
+        union.map(new MapFunction<Integer, Integer>() {
+            @Override
+            public Integer map(Integer value) throws Exception {
+                return value+10;
+            }
+        }).print();
+        env.execute();
+    }
+}
+
+package com.guogan.wordCount.chapter03;
+
+import com.guogan.wordCount.Bean.WaterSensor;
+import com.guogan.wordCount.chapter01.Flink10_Transform_KeyBy;
+import org.apache.flink.api.common.functions.MapFunction;
+import org.apache.flink.api.java.tuple.Tuple3;
+import org.apache.flink.streaming.api.datastream.DataStreamSource;
+import org.apache.flink.streaming.api.datastream.KeyedStream;
+import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
+import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+
+/**
+ * @author weixu
+ * @create 2020-09-18 19:43
+ */
+public class Flink16_Transform_RollingAgg {
+    public static void main(String[] args) throws Exception {
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        DataStreamSource<String> inputDS = env.socketTextStream("localhost", 9999);
+        SingleOutputStreamOperator<WaterSensor> waterDS = inputDS.map(new Flink10_Transform_KeyBy.MyMapFunction());
+        SingleOutputStreamOperator<Tuple3<String, Long, Integer>> waterTuple = waterDS.map(new MapFunction<WaterSensor, Tuple3<String, Long, Integer>>() {
+            @Override
+            public Tuple3<String, Long, Integer> map(WaterSensor waterSensor) throws Exception {
+                return new Tuple3<>(waterSensor.getId(), waterSensor.getTs(), waterSensor.getVc());
+            }
+        });
+        KeyedStream<Tuple3<String, Long, Integer>, String> tuple3StringKeyedStream = waterTuple.keyBy(f -> f.f0);
+        tuple3StringKeyedStream.max(2).print("max");
+        env.execute();
+    }
+}
+
+
+package com.guogan.wordCount.chapter03;
+
+import com.guogan.wordCount.Bean.WaterSensor;
+import com.guogan.wordCount.chapter01.Flink10_Transform_KeyBy;
+import org.apache.flink.api.common.functions.MapFunction;
+import org.apache.flink.api.common.functions.ReduceFunction;
+import org.apache.flink.api.java.tuple.Tuple3;
+import org.apache.flink.streaming.api.datastream.DataStreamSource;
+import org.apache.flink.streaming.api.datastream.KeyedStream;
+import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
+import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+
+/**
+ * @author weixu
+ * @create 2020-09-18 20:14
+ */
+public class Flink17_Transform_Reduce {
+    public static void main(String[] args) throws Exception {
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        DataStreamSource<String> inputDS = env.socketTextStream("localhost", 9999);
+        SingleOutputStreamOperator<WaterSensor> waterDS = inputDS.map(new Flink10_Transform_KeyBy.MyMapFunction());
+        SingleOutputStreamOperator<Tuple3<String, Long, Integer>> waterTuple = waterDS.map(new MapFunction<WaterSensor, Tuple3<String, Long, Integer>>() {
+            @Override
+            public Tuple3<String, Long, Integer> map(WaterSensor waterSensor) throws Exception {
+                return new Tuple3<>(waterSensor.getId(), waterSensor.getTs(), waterSensor.getVc());
+            }
+        });
+        KeyedStream<Tuple3<String, Long, Integer>, String> tuple3ks = waterTuple.keyBy(f -> f.f0);
+        tuple3ks.reduce(new ReduceFunction<Tuple3<String, Long, Integer>>() {
+            @Override
+            public Tuple3<String, Long, Integer> reduce(Tuple3<String, Long, Integer> t1, Tuple3<String, Long, Integer> t2) throws Exception {
+                return Tuple3.of("reduce",12L,t1.f2+t2.f2);
+            }
+        }).print();
+        env.execute();
+    }
+}
+
+
+package com.guogan.wordCount.chapter03;
+
+import com.guogan.wordCount.Bean.WaterSensor;
+import com.guogan.wordCount.chapter01.Flink10_Transform_KeyBy;
+import org.apache.flink.api.common.functions.MapFunction;
+import org.apache.flink.api.java.tuple.Tuple3;
+import org.apache.flink.streaming.api.datastream.DataStreamSource;
+import org.apache.flink.streaming.api.datastream.KeyedStream;
+import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
+import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
+import org.apache.flink.util.Collector;
+
+/**
+ * @author weixu
+ * @create 2020-09-18 20:20
+ */
+public class Flink18_Transform_Process {
+    public static void main(String[] args) throws Exception {
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        env.setParallelism(1);
+
+        // 1.从文件读取数据
+        DataStreamSource<String> inputDS = env
+                .readTextFile("input/sensor-data.log");
+//                .socketTextStream("localhost", 9999);
+
+        // 2.Transform: Map转换成实体对象
+        SingleOutputStreamOperator<WaterSensor> sensorDS = inputDS.map(new Flink10_Transform_KeyBy.MyMapFunction());
+
+        // 3.按照 id 分组
+        KeyedStream<Tuple3<String, Long, Integer>, String> sensorKS = sensorDS
+                .map(new MapFunction<WaterSensor, Tuple3<String, Long, Integer>>() {
+                    @Override
+                    public Tuple3<String, Long, Integer> map(WaterSensor value) throws Exception {
+                        return new Tuple3<>(value.getId(), value.getTs(), value.getVc());
+                    }
+                })
+                .keyBy(r -> r.f0);
+        sensorKS.process(new KeyedProcessFunction<String, Tuple3<String, Long, Integer>, String>() {
+            @Override
+            public void processElement(Tuple3<String, Long, Integer> value, Context context, Collector<String> collector) throws Exception {
+                collector.collect("当前key"+context.getCurrentKey()+"当前时间"+context.timestamp()+value);
+            }
+        }).print("peocess");
+        env.execute();
+    }
+}
+
+package com.guogan.wordCount.chapter03;
+
+import org.apache.flink.api.common.serialization.SimpleStringSchema;
+import org.apache.flink.streaming.api.datastream.DataStreamSource;
+import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.streaming.connectors.kafka.FlinkKafkaProducer011;
+import org.apache.flink.streaming.connectors.kafka.Kafka011TableSink;
+
+/**
+ * @author weixu
+ * @create 2020-09-18 20:32
+ */
+public class Flink19_Sink_Kafka {
+    public static void main(String[] args) throws Exception {
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        DataStreamSource<String> inputDS = env.readTextFile("input/sensor-data.log");
+        inputDS.addSink(new FlinkKafkaProducer011<String>(
+                "hadoop102:9092",
+                "sensor",
+                new SimpleStringSchema()
+        ));
+        env.execute();
+    }
+}
+
+
+package com.guogan.wordCount.chapter03;
+
+import org.apache.flink.streaming.api.datastream.DataStreamSource;
+import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.streaming.connectors.redis.RedisSink;
+import org.apache.flink.streaming.connectors.redis.common.config.FlinkJedisPoolConfig;
+import org.apache.flink.streaming.connectors.redis.common.mapper.RedisCommand;
+import org.apache.flink.streaming.connectors.redis.common.mapper.RedisCommandDescription;
+import org.apache.flink.streaming.connectors.redis.common.mapper.RedisMapper;
+
+/**
+ * @author weixu
+ * @create 2020-09-18 20:44
+ */
+public class Flink20_Sink_Redis {
+    public static void main(String[] args) throws Exception {
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        env.setParallelism(1);
+
+        // 1.从文件读取数据
+        DataStreamSource<String> inputDS = env
+                .readTextFile("input/sensor-data.log");
+        FlinkJedisPoolConfig redisConf = new FlinkJedisPoolConfig.Builder().setHost("hadoop102").setPort(6379).build();
+        inputDS.addSink(
+                new RedisSink<String>(redisConf, new RedisMapper<String>() {
+                    @Override
+                    public RedisCommandDescription getCommandDescription() {
+                        return new RedisCommandDescription(RedisCommand.HSET,"sensor0421");
+                    }
+
+                    @Override
+                    public String getKeyFromData(String s) {
+                        String[] datas = s.split(",");
+                        return datas[1];
+                    }
+
+                    @Override
+                    public String getValueFromData(String s) {
+                        String[] datas = s.split(",");
+                        return datas[2];
+                    }
+                })
+        );
+        env.execute();
+    }
+}
+
+
+package com.guogan.wordCount.chapter03;
+
+import org.apache.flink.api.common.functions.RuntimeContext;
+import org.apache.flink.streaming.api.datastream.DataStreamSource;
+import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.streaming.connectors.elasticsearch.ElasticsearchSinkFunction;
+import org.apache.flink.streaming.connectors.elasticsearch.RequestIndexer;
+import org.apache.flink.streaming.connectors.elasticsearch6.ElasticsearchSink;
+import org.apache.http.HttpHost;
+import org.elasticsearch.action.index.IndexRequest;
+import org.elasticsearch.client.Requests;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+
+/**
+ * @author weixu
+ * @create 2020-09-18 21:05
+ */
+public class Flink21_Sink_ES {
+    public static void main(String[] args) throws Exception {
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        env.setParallelism(1);
+
+        // 1.从文件读取数据
+        DataStreamSource<String> inputDS = env
+                .readTextFile("input/sensor-data.log");
+        List<HttpHost> httpHosts=new ArrayList<>();
+        httpHosts.add(new HttpHost("hadoop102",9200));
+        httpHosts.add(new HttpHost("hadoop103",9200));
+        httpHosts.add(new HttpHost("hadoop104",9200));
+        ElasticsearchSink<String> esSink = new ElasticsearchSink.Builder<String>(httpHosts, new ElasticsearchSinkFunction<String>() {
+            @Override
+            public void process(String s, RuntimeContext runtimeContext, RequestIndexer Indexer) {
+                HashMap<String, String> dataMap = new HashMap<>();
+                dataMap.put("data", s);
+                IndexRequest indexRequest = Requests.indexRequest("sensor0421").type("readiong").source(dataMap);
+                Indexer.add(indexRequest);
+            }
+        }).build();
+        inputDS.addSink(esSink);
+        env.execute();
+    }
+}
+
+
+package com.guogan.wordCount.chapter03;
+
+import org.apache.flink.api.common.functions.IterationRuntimeContext;
+import org.apache.flink.api.common.functions.RuntimeContext;
+import org.apache.flink.configuration.Configuration;
+import org.apache.flink.streaming.api.datastream.DataStreamSource;
+import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
+
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+
+/**
+ * @author weixu
+ * @create 2020-09-18 22:20
+ */
+public class Flink22_Sink_MySQL {
+    public static void main(String[] args) throws Exception {
+
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        env.setParallelism(1);
+
+        // 1.从文件读取数据
+        DataStreamSource<String> inputDS = env
+                .readTextFile("input/sensor-data.log");
+
+
+         inputDS.addSink(new RichSinkFunction<String>() {
+             Connection coon=null;
+             PreparedStatement prs=null;
+             @Override
+             public void setRuntimeContext(RuntimeContext t) {
+                 super.setRuntimeContext(t);
+             }
+
+             @Override
+             public RuntimeContext getRuntimeContext() {
+                 return super.getRuntimeContext();
+             }
+
+             @Override
+             public IterationRuntimeContext getIterationRuntimeContext() {
+                 return super.getIterationRuntimeContext();
+             }
+
+             @Override
+             public void open(Configuration parameters) throws Exception {
+                 coon = DriverManager.getConnection("jdbc:mysql://hadoop102:3306/test", "root", "123456");
+                 prs = coon.prepareStatement("INSERT INTO sensor VALUES (?,?,?)");
+
+             }
+
+             @Override
+             public void close() throws Exception {
+                 coon.close();
+                 prs.close();
+
+             }
+
+             @Override
+             public void invoke(String value, Context context) throws Exception {
+                 String[] datas = value.split(",");
+                 prs.setString(1,datas[0]);
+                 prs.setLong(2,Long.valueOf(datas[1]));
+                 prs.setInt(3,Integer.valueOf(datas[2]));
+                 prs.execute();
+             }
+         });
+
+        env.execute();
+    }
+
+}
+
+
+/**
+ * @author weixu
+ * @create 2020-09-18 22:45
+ */
+public class Flink23_Case_PV {
+    public static void main(String[] args) throws Exception {
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        DataStreamSource<String> inputDS = env.readTextFile("input/UserBehavior.csv");
+        env.setParallelism(1);
+        SingleOutputStreamOperator<UserBehavior> userDS = inputDS.map(new MapFunction<String, UserBehavior>() {
+            @Override
+            public UserBehavior map(String s) throws Exception {
+                String[] dates = s.split(",");
+                return new UserBehavior(
+                        Long.valueOf(dates[0]),
+                        Long.valueOf(dates[1]),
+                        Integer.valueOf(dates[2]),
+                        dates[3],
+                        Long.valueOf(dates[4])
+
+                );
+            }
+        });
+        SingleOutputStreamOperator<UserBehavior> filter = userDS.filter(r -> "pv".equals(r.getBehavior()));
+        filter.map(new MapFunction<UserBehavior, Tuple2<String,Integer>>() {
+
+            @Override
+            public Tuple2<String, Integer> map(UserBehavior userBehavior) throws Exception {
+                return Tuple2.of("pv",1);
+            }
+        }).keyBy(0).sum(1).print();
+        env.execute();
+    }
+}
+
+
+/**
+ * @author weixu
+ * @create 2020-09-18 23:03
+ */
+public class Flink24_Case_PVByProcess {
+    public static void main(String[] args) throws Exception {
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        DataStreamSource<String> inputDS = env.readTextFile("input/UserBehavior.csv");
+        env.setParallelism(1);
+        SingleOutputStreamOperator<UserBehavior> userDS = inputDS.map(new MapFunction<String, UserBehavior>() {
+            @Override
+            public UserBehavior map(String s) throws Exception {
+                String[] dates = s.split(",");
+                return new UserBehavior(
+                        Long.valueOf(dates[0]),
+                        Long.valueOf(dates[1]),
+                        Integer.valueOf(dates[2]),
+                        dates[3],
+                        Long.valueOf(dates[4])
+
+                );
+            }
+        });
+        SingleOutputStreamOperator<UserBehavior> filter = userDS.filter(r -> "pv".equals(r.getBehavior()));
+        KeyedStream<UserBehavior, String> userBehaviorStringKeyedStream = filter.keyBy(data -> data.getBehavior());
+        userBehaviorStringKeyedStream.process(new KeyedProcessFunction<String, UserBehavior, Long>() {
+            private Long pvcount=0L;
+            @Override
+            public void processElement(UserBehavior userBehavior, Context context, Collector<Long> collector) throws Exception {
+                pvcount++;
+                collector.collect(pvcount);
+            }
+        }).print("pvks");
+        env.execute();
+    }
+
+}
+
+import org.apache.flink.api.common.functions.FlatMapFunction;
+import org.apache.flink.api.java.tuple.Tuple2;
+import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.util.Collector;
+
+/**
+ * @author weixu
+ * @create 2020-09-18 23:14
+ */
+public class Flink25_Case_PVByFlatmap {
+    public static void main(String[] args) throws Exception {
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        env.setParallelism(1);
+        env.readTextFile("input/UserBehavior.csv").flatMap(new FlatMapFunction<String, Tuple2<String,Integer>>() {
+            @Override
+            public void flatMap(String s, Collector<Tuple2<String,Integer>> collector) throws Exception {
+                String[] datas = s.split(",");
+                if("pv".equals(datas[0])){
+                    collector.collect(Tuple2.of("pv",1));
+                }
+            }
+        }).keyBy(0).sum(1).print();
+        env.execute();
+        
+
+    }
+}
+
+
+
+import org.apache.flink.api.common.functions.FlatMapFunction;
+import org.apache.flink.api.java.tuple.Tuple2;
+import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.util.Collector;
+
+/**
+ * @author weixu
+ * @create 2020-09-18 23:14
+ */
+public class Flink25_Case_PVByFlatmap {
+    public static void main(String[] args) throws Exception {
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        env.setParallelism(1);
+        env.readTextFile("input/UserBehavior.csv").flatMap(new FlatMapFunction<String, Tuple2<String,Integer>>() {
+            @Override
+            public void flatMap(String s, Collector<Tuple2<String,Integer>> collector) throws Exception {
+                String[] datas = s.split(",");
+                if("pv".equals(datas[0])){
+                    collector.collect(Tuple2.of("pv",1));
+                }
+            }
+        }).keyBy(0).sum(1).print();
+        env.execute();
+        
+
+    }
+}
+
+/**
+ * @author weixu
+ * @create 2020-09-18 23:48
+ */
+public class Flink27_Case_APPMarketingAnalysis {
+    public static void main(String[] args) throws Exception {
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        DataStreamSource<MarketingUserBehavior> inputDS = env.addSource(new AppSource());
+        SingleOutputStreamOperator<Tuple2<String, Integer>> mapTuple = inputDS.map(new MapFunction<MarketingUserBehavior, Tuple2<String, Integer>>() {
+            @Override
+            public Tuple2<String, Integer> map(MarketingUserBehavior value) throws Exception {
+                return Tuple2.of(value.getBehavior() +"-"+ value.getChannel(), 1);
+            }
+        });
+        mapTuple.keyBy(0).sum(1).print();
+        env.execute();
+    }
+    public static class  AppSource implements SourceFunction<MarketingUserBehavior>{
+        private List<String> behaviorList = Arrays.asList("DOWNLOAD", "INSTALL", "UPDATE", "UNINSTALL");
+        private List<String> channelList = Arrays.asList("XIAOMI", "HUAWEI", "OPPO", "VIVO");
+        private boolean flag=true;
+
+        @Override
+        public void run(SourceContext<MarketingUserBehavior> sourceContext) throws Exception {
+            Random random = new Random();
+            while (flag){
+                sourceContext.collect(new MarketingUserBehavior(
+                        Long.valueOf(random.nextInt(10)),
+                        behaviorList.get(random.nextInt(behaviorList.size())),
+                        channelList.get(random.nextInt(channelList.size())),
+                        System.currentTimeMillis()
+
+                ));
+                Thread.sleep(1000L);
+            }
+        }
+
+        @Override
+        public void cancel() {
+            flag=false;
+        }
+    }
+}
+
+
+
+/**
+ * @author weixu
+ * @create 2020-09-19 9:50
+ */
+public class Flink29_Case_AD {
+    public static void main(String[] args) throws Exception {
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        env.setParallelism(1);
+        DataStreamSource<String> inputDS = env.readTextFile("input/AdClickLog.csv");
+        inputDS.map(new MapFunction<String, Tuple2<String,Integer>>() {
+            @Override
+            public Tuple2<String, Integer> map(String s) throws Exception {
+                String[] datas = s.split(",");
+                return Tuple2.of(datas[2]+"-"+datas[3],1);
+            }
+        }).keyBy(0).sum(1).print("kv");
+        env.execute();
+    }
+}
+
+
+/**
+ * @author weixu
+ * @create 2020-09-19 13:44
+ */
+public class Flink30_Case_conect {
+    public static void main(String[] args) throws Exception {
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        env.setParallelism(1);
+        SingleOutputStreamOperator<OrderEvent> orderDS = env.readTextFile("input/OrderLog.csv").map(new MapFunction<String, OrderEvent>() {
+            @Override
+            public OrderEvent map(String s) throws Exception {
+                String[] datas = s.split(",");
+                return new OrderEvent(
+                        Long.valueOf(datas[0]),
+                        datas[1],
+                        datas[2],
+                        Long.valueOf(datas[3])
+                );
+            }
+        });
+        SingleOutputStreamOperator<TxEvent> txDS = env
+                .readTextFile("input/ReceiptLog.csv")
+                .map(new MapFunction<String, TxEvent>() {
+                    @Override
+                    public TxEvent map(String value) throws Exception {
+                        String[] datas = value.split(",");
+                        return new TxEvent(
+                                datas[0],
+                                datas[1],
+                                Long.valueOf(datas[2])
+                        );
+                    }
+                });
+        ConnectedStreams<OrderEvent, TxEvent> orderTxCS = orderDS.keyBy(od -> od.getTxId()).connect(txDS.keyBy(tx -> tx.getTxId()));
+
+        orderTxCS
+        .process(new CoProcessFunction<OrderEvent, TxEvent, String>() {
+            private Map<String,TxEvent> TxMap=new HashMap<>();
+            private Map<String,OrderEvent> orderMap=new HashMap<>();
+            @Override
+            public void processElement2(TxEvent value, Context context, Collector<String> collector) throws Exception {
+                OrderEvent orderEvent = orderMap.get(value.getTxId());
+                if (orderEvent==null){
+                    TxMap.put(value.getTxId(),value);
+                }else {
+                    collector.collect("定单"+orderEvent.getOrderId()+"对账成功");
+                    TxMap.remove(value.getTxId());
+                }
+            }
+
+            @Override
+            public void processElement1(OrderEvent value, Context context, Collector<String> collector) throws Exception {
+                TxEvent txEvent = TxMap.get(value.getTxId());
+                if (txEvent==null){
+                    orderMap.put(value.getTxId(),value);
+                }else {
+                    //业务数据来了=》对账成功
+                    collector.collect("订单"+value.getOrderId()+"对账成功");
+                    orderMap.remove(value.getTxId());
+                }
+            }
+        }).print();
+        env.execute();
+    }
+
+}
+
+
+
+
+
+
