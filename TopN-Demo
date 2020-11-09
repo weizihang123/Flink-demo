@@ -1,0 +1,416 @@
+package com.guogan.wordCount.chapter01;
+
+import org.apache.flink.api.common.serialization.SimpleStringSchema;
+import org.apache.flink.streaming.api.datastream.DataStreamSource;
+import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer011;
+
+import java.util.Properties;
+
+/**
+ * @author weixu
+ * @create 2020-09-16 18:57
+ */
+public class Environment_Flink03 {
+    public static void main(String[] args) throws Exception {
+
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        Properties properties = new Properties();
+        properties.setProperty("bootstrap.servers", "hadoop102:9092");
+        properties.setProperty("group.id", "consumer-group");
+        properties.setProperty("key.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
+        properties.setProperty("value.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
+        properties.setProperty("auto.offset.reset", "latest");
+        DataStreamSource<String> kafkaDS = env.addSource(new FlinkKafkaConsumer011<String>("sensor",
+                new SimpleStringSchema(),
+                properties));
+
+        kafkaDS.print();
+        env.execute();
+    }
+}
+
+package com.guogan.wordCount.chapter01;
+
+import com.guogan.wordCount.Bean.WaterSensor;
+import org.apache.flink.streaming.api.datastream.DataStreamSource;
+import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+
+import java.util.Arrays;
+
+/**
+ * @author weixu
+ * @create 2020-09-16 14:39
+ */
+public class Flink02_Source_Collection {
+    public static void main(String[] args) throws Exception {
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+//        env.setParallelism(1);
+        DataStreamSource<WaterSensor> SensorDS = env.fromCollection(
+                Arrays.asList(
+                        new WaterSensor("sensor_1", 12345667L, 41),
+                        new WaterSensor("sensor_2", 12345647L, 47),
+                        new WaterSensor("sensor_3", 12345657L, 49)
+                )
+        );
+        SensorDS.print();
+        env.execute();
+    }
+}
+
+package com.guogan.wordCount.chapter01;
+
+import com.guogan.wordCount.Bean.WaterSensor;
+import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.streaming.api.functions.source.SourceFunction;
+
+
+import java.util.Random;
+
+/**
+ * @author weixu
+ * @create 2020-09-16 19:27
+ */
+public class Flink05_Source_MySource {
+    public static void main(String[] args) throws Exception {
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        env.addSource(new MySourceFunction()).print();
+
+        env.execute();
+    }
+    public static class MySourceFunction implements SourceFunction<WaterSensor>{
+
+        private boolean flag=true;
+        @Override
+        public void run(SourceContext<WaterSensor> sourceContext) throws Exception {
+            Random random;
+            random = new Random();
+
+            while (flag){
+                sourceContext.collect(
+                        new WaterSensor(
+                        "sensor_"+random.nextInt(3),
+                        System.currentTimeMillis(),
+                        random.nextInt(9)+40));
+                Thread.sleep(2000);
+            };
+        }
+
+        @Override
+        public void cancel() {
+            this.flag=false;
+        }
+    }
+}
+
+
+package com.guogan.wordCount.chapter01;
+
+import com.guogan.wordCount.Bean.WaterSensor;
+import org.apache.flink.api.common.functions.MapFunction;
+import org.apache.flink.streaming.api.datastream.DataStreamSource;
+import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+
+/**
+ * @author weixu
+ * @create 2020-09-16 19:48
+ * input\sensor-data.log
+ */
+public class Flink06_Transform_Map {
+    public static void main(String[] args) throws Exception {
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        DataStreamSource<String> DataDs = env.readTextFile("input/sensor-data.log");
+        DataDs.map(new MySourceFunction()).print();
+        env.execute();
+    }
+    public static class MySourceFunction implements MapFunction<String, WaterSensor>{
+        @Override
+        public WaterSensor map(String s) throws Exception {
+            String[] datas = s.split(",");
+           return new WaterSensor(datas[0],Long.valueOf(datas[1]),Integer.valueOf(datas[2]));
+
+        }
+    }
+}
+
+package com.guogan.wordCount.chapter01;
+
+
+import com.guogan.wordCount.Bean.WaterSensor;
+import org.apache.flink.api.common.functions.RichMapFunction;
+
+import org.apache.flink.configuration.Configuration;
+import org.apache.flink.streaming.api.datastream.DataStreamSource;
+import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+
+/**
+ * @author weixu
+ * @create 2020-09-16 20:03
+ */
+public class Flink07_Transform_RichMapFunction {
+    public static void main(String[] args) throws Exception {
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        env.setParallelism(1);
+        DataStreamSource<String> stringDataStreamSource = env.readTextFile("D:\\code\\Flink0421\\input\\sensor-data.log");
+        stringDataStreamSource.map(new MyFunction()).print();
+        env.execute();
+    }
+    public static class MyFunction extends RichMapFunction<String, WaterSensor>{
+        @Override
+        public WaterSensor map(String s) throws Exception {
+
+                String[] datas = s.split(",");
+
+                return new WaterSensor(datas[0],Long.valueOf(datas[1]),Integer.valueOf(datas[2]));
+        }
+        @Override
+        public void open(Configuration parameters) throws Exception {
+            System.out.println("open...");
+        }
+
+        @Override
+        public void close() throws Exception {
+            System.out.println("close...");
+        }
+    }
+}
+
+
+package com.guogan.wordCount.chapter01;
+
+import org.apache.flink.api.common.functions.FlatMapFunction;
+import org.apache.flink.streaming.api.datastream.DataStreamSource;
+import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.util.Collector;
+
+import javax.xml.stream.events.StartDocument;
+import java.util.Arrays;
+import java.util.List;
+
+/**
+ * @author weixu
+ * @create 2020-09-16 20:18
+ */
+public class Flink08_Transform_FlatMap {
+    public static void main(String[] args) throws Exception {
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        DataStreamSource<List<Integer>> listDataStreamSource = env.fromCollection(Arrays.asList(
+                Arrays.asList(1, 2, 3, 4, 5, 6, 7),
+                Arrays.asList(1, 2, 3, 4, 5, 6))
+        );
+
+        listDataStreamSource.flatMap(new FlatMapFunction<List<Integer>, Integer>() {
+            @Override
+            public void flatMap(List<Integer> integers, Collector<Integer> collector) throws Exception {
+                for (Integer integer : integers) {
+                    collector.collect(integer+10);
+                }
+            }
+        }).print();
+        env.execute();
+    }
+
+}
+
+
+package com.guogan.wordCount.chapter01;
+
+import org.apache.flink.api.common.functions.FilterFunction;
+import org.apache.flink.streaming.api.datastream.DataStreamSource;
+import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+
+import java.util.Arrays;
+
+/**
+ * @author weixu
+ * @create 2020-09-16 20:26
+ */
+public class Flink09_Transform_Filter {
+    public static void main(String[] args) throws Exception {
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        DataStreamSource<Integer> integerDataStreamSource = env.fromCollection(
+                Arrays.asList(1, 2, 3, 4, 5, 5, 6, 67, 7)
+        );
+        integerDataStreamSource.filter(new Myfunction()).print();
+        env.execute();
+    }
+    public static class Myfunction implements FilterFunction<Integer>{
+
+        @Override
+        public boolean filter(Integer value) throws Exception {
+            return value%2==0;
+        }
+    }
+}
+
+
+package com.guogan.wordCount.chapter01;
+
+import com.guogan.wordCount.Bean.WaterSensor;
+import org.apache.flink.api.common.functions.MapFunction;
+import org.apache.flink.api.java.functions.KeySelector;
+import org.apache.flink.streaming.api.datastream.DataStreamSource;
+import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
+import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+
+/**
+ * @author weixu
+ * @create 2020-09-16 20:35
+ */
+public class Flink10_Transform_KeyBy {
+    public static void main(String[] args) throws Exception {
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        DataStreamSource<String> DSSource = env.readTextFile("input/sensor-data.log");
+        SingleOutputStreamOperator<WaterSensor> map = DSSource.map(new MyMapFunction());
+        map.keyBy(new myselectot()).print();
+        env.execute();
+    }
+    public static class MyMapFunction implements MapFunction<String,WaterSensor>{
+
+        @Override
+        public WaterSensor map(String s) throws Exception {
+            String[] datas = s.split(",");
+
+            return new WaterSensor(datas[0],Long.valueOf(datas[1]),Integer.valueOf(datas[2]));
+        }
+    }
+    public static class myselectot implements KeySelector<WaterSensor,String>{
+        @Override
+        public String getKey(WaterSensor waterSensor) throws Exception {
+            return waterSensor.getId();
+        }
+    }
+}
+
+
+package com.guogan.wordCount.chapter01;
+
+import org.apache.flink.streaming.api.datastream.DataStream;
+import org.apache.flink.streaming.api.datastream.DataStreamSource;
+import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+
+/**
+ * @author weixu
+ * @create 2020-09-16 20:50
+ */
+public class Flink11_Transform_shuffle {
+    public static void main(String[] args) throws Exception {
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        DataStreamSource<String> inputDS = env.readTextFile("input/sensor-data.log");
+        inputDS.print("input");
+        DataStream<String> shuffle = inputDS.shuffle();
+        shuffle.print("shuffle");
+        env.execute();
+    }
+}
+
+
+package com.guogan.wordCount.chapter02;
+
+import org.apache.flink.api.common.functions.FlatMapFunction;
+import org.apache.flink.api.java.ExecutionEnvironment;
+import org.apache.flink.api.java.operators.AggregateOperator;
+import org.apache.flink.api.java.operators.DataSource;
+import org.apache.flink.api.java.operators.FlatMapOperator;
+import org.apache.flink.api.java.operators.UnsortedGrouping;
+import org.apache.flink.api.java.tuple.Tuple2;
+import org.apache.flink.util.Collector;
+
+
+/**
+ * @author weixu
+ * @create 2020-09-15 12:09
+ */
+public class Flink01_WC_Batch {
+    public static void main(String[] args) throws Exception {
+        //
+        ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
+        DataSource<String> stringDataSource = env.readTextFile("/opt/module/input/word.txt");
+        FlatMapOperator<String, Tuple2<String, Integer>> stringTuple2FlatMapOperator = stringDataSource.flatMap(new FlatMapFunction<String, Tuple2<String, Integer>>() {
+
+
+            @Override
+            public void flatMap(String value, Collector<Tuple2<String, Integer>> collector) throws Exception {
+                String[] words = value.split(" ");
+                for (String word : words) {
+                    collector.collect(new Tuple2<String, Integer>(word, 1));
+                }
+            }
+        });
+        UnsortedGrouping<Tuple2<String, Integer>> tuple2UnsortedGrouping = stringTuple2FlatMapOperator.groupBy(0);
+        AggregateOperator<Tuple2<String, Integer>> result = tuple2UnsortedGrouping.sum(1);
+        result.print();
+    }
+
+}
+
+
+package com.guogan.wordCount.chapter02;
+
+import org.apache.flink.api.common.functions.FlatMapFunction;
+import org.apache.flink.api.java.tuple.Tuple;
+import org.apache.flink.api.java.tuple.Tuple2;
+import org.apache.flink.streaming.api.datastream.DataStreamSource;
+import org.apache.flink.streaming.api.datastream.KeyedStream;
+import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
+import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.util.Collector;
+
+/**
+ * @author weixu
+ * @create 2020-09-15 14:58
+ */
+public class Flink02_WC_Batch {
+    public static void main(String[] args) throws Exception {
+        StreamExecutionEnvironment executionEnvironment = StreamExecutionEnvironment.getExecutionEnvironment();
+        DataStreamSource<String> stringDataStreamSource = executionEnvironment.readTextFile("/opt/module/input/word.txt");
+
+        SingleOutputStreamOperator<Tuple2<String, Integer>> tuple2SingleOutputStreamOperator = stringDataStreamSource.flatMap(new FlatMapFunction<String, Tuple2<String, Integer>>() {
+            @Override
+            public void flatMap(String s, Collector<Tuple2<String, Integer>> collector) throws Exception {
+                String[] s1 = s.split(" ");
+                for (String s2 : s1) {
+                    collector.collect(new Tuple2<String, Integer>(s2, 1));
+                }
+            }
+        });
+        KeyedStream<Tuple2<String, Integer>, Tuple> tuple2TupleKeyedStream = tuple2SingleOutputStreamOperator.keyBy(0);
+        SingleOutputStreamOperator<Tuple2<String, Integer>> sum = tuple2TupleKeyedStream.sum(1);
+        sum.print();
+        executionEnvironment.execute();
+    }
+}
+
+package com.guogan.wordCount.chapter02;
+
+import org.apache.flink.api.common.functions.FlatMapFunction;
+import org.apache.flink.api.java.tuple.Tuple2;
+import org.apache.flink.streaming.api.datastream.DataStreamSource;
+import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
+import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.util.Collector;
+
+/**
+ * @author weixu
+ * @create 2020-09-15 18:28
+ */
+public class Flink03_WC_UnBoundedStream {
+    public static void main(String[] args) throws Exception {
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        DataStreamSource<String> SocketDS = env.socketTextStream("localhost", 9999);
+        SingleOutputStreamOperator<Tuple2<String, Integer>> wordAndOneTuple = SocketDS.flatMap(new FlatMapFunction<String, Tuple2<String, Integer>>() {
+            @Override
+            public void flatMap(String value, Collector<Tuple2<String, Integer>> out) throws Exception {
+                String[] words = value.split(" ");
+                for (String word : words) {
+                    out.collect(new Tuple2<String, Integer>(word, 1));
+                }
+            }
+
+        });
+        wordAndOneTuple.keyBy(0).sum(1).print();
+        env.execute();
+    }
+}
+
+
